@@ -2,7 +2,7 @@ import faiss
 import torch
 import numpy as np
 from transformers import (AutoTokenizer, AutoModel)
-
+from langchain_ollama import OllamaLLM
 
 class KnowledgeBase:
     
@@ -36,11 +36,11 @@ class KnowledgeBase:
 class QueryRewriter:
     def __init__(self,rewrite_model:str):
         pass
-    def rewrite(self,query_user):
+    def rewrite(self,query_user:str):
         pass
-    def verify(self,query_user,query):
+    def verify(self,query_user:str,query:str):
         pass
-    def set_context(self,context):
+    def set_context(self,context:str):
         pass
 
 
@@ -89,13 +89,51 @@ class VectorFetcher:
 
 
 
-class ToolManager:
-    class ToolMySQL():
+class ChainManager:
+    
+    class ChainMySQL():
         def retrieve(self,query:str,bdd:str):
             pass
         
-    class ToolSem(): 
-        pass
+    class ChainSem(): 
+        """
+        A chain to generate queries to question a endpoint OWL/SPARQL
+
+        Examples:
+        >>> chainSPARQL=ChainSem(query_endpoint="http://localhost:3030/cluedo/query",model='llama3')
+        >>> answer = chainSPARQL.ask("Combien y a-t-il de pièces dans la maison?")
+        >>> answer['result']
+
+        'According to the available information, there are 11 pieces in the house.'
+
+        >>> answer['sparql_query']
+
+        PREFIX lamaisondumeurtre: <http://www.lamaisondumeurtre.fr#>
+        SELECT (COUNT(?piece) AS ?count)
+        WHERE {
+            ?house a lamaisondumeurtre:Maison .
+            ?house lamaisondumeurtre:pieceDansMaison ?piece .
+        }
+        
+        """
+        
+        def __init__(self,query_endpoint:str,model:str):
+            from langchain_community.graphs import RdfGraph
+            from langchain_community.chains.graph_qa.sparql import GraphSparqlQAChain
+
+            self.query_endpoint=query_endpoint
+            self.graph = RdfGraph(
+                query_endpoint=self.query_endpoint,
+                standard="rdf",
+                local_copy="test.ttl",
+            )
+            self.model=model
+            llm = OllamaLLM(model=self.model)
+            self.chain = GraphSparqlQAChain.from_llm(llm, graph=self.graph, verbose=True,allow_dangerous_requests=True, return_sparql_query= True)
+
+        def ask(self,question:str):
+            response = self.chain(question)
+            return response
 
 
 
@@ -135,7 +173,7 @@ class Rag:
             if not retrieved_document.needTool:
                 self.context.append(retrieved_document.context)
             else:
-                self.toolSQL=ToolManager.ToolMySQL()
+                self.toolSQL=ChainManager.ChainMySQL()
                 bdd="/path/to/database" #???
                 self.context.append(self.toolSQL.retrieve(self,query,bdd).context)
         self.generator=RAGGenerator(generator_model='llama3.3')
