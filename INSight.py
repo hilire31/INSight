@@ -7,17 +7,19 @@ from langchain_ollama import OllamaLLM
 class KnowledgeBase:
     
     def __init__(self,dataset:list,token_embed:AutoTokenizer,model_embed:AutoModel):
-        self.setDataset(dataset)
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.loadTokeniser(token_embed,model_embed)
+        self.setDataset(dataset)
+        
+        self.build_faiss_index()
 
-    def loadTokeniser(self):
-        self.tokenizer_embed = AutoTokenizer.from_pretrained("BAAI/bge-small-en") # tokenize
-        self.model_embed = AutoModel.from_pretrained("BAAI/bge-small-en").to(self.device) # vectorize
+    def loadTokeniser(self,token_embed:AutoTokenizer,model_embed:AutoModel):
+        self.tokenizer_embed = AutoTokenizer.from_pretrained(token_embed) # tokenize
+        self.model_embed = AutoModel.from_pretrained(model_embed).to(self.device) # vectorize
     def build_faiss_index(self):
         dimension = 384 #vecteur de 384 dimensions pour chaque token
         self.index = faiss.IndexFlatL2(dimension)
-        questions = [d["question"] for d in self.dataset]
-        embeddings = np.vstack([self.get_embedding(q) for q in questions])
+        embeddings = np.vstack([self.get_embedding(q["info"]) for q in self.dataset])
         self.index.add(embeddings)
         faiss.write_index(self.index, "faiss_index.idx")
         
@@ -31,7 +33,8 @@ class KnowledgeBase:
         with torch.no_grad():
             output = self.model_embed(**inputs)
         return output.last_hidden_state[:, 0, :].cpu().numpy()
-
+    
+        
 
 class QueryRewriter:
     def __init__(self,rewrite_model:str):
@@ -80,10 +83,14 @@ class QueryExpander:
 
 
 class VectorFetcher:
-    def __init__(self):
-        pass
+    def __init__(self,knowledge:KnowledgeBase):
+        self.knowledge=knowledge
     def retrieve(self,query:str): 
-        pass
+        query_embedding = self.knowledge.get_embedding(query)
+        D, I = self.knowledge.index.search(query_embedding, k=1)
+        retrieved_info = self.knowledge.dataset[I[0][0]]
+        input_text = f"context: {retrieved_info["info"]} question: {query}"
+        print("input : ",input_text)
     def verify(self,query:str,queries:list):
         pass
 
@@ -180,8 +187,19 @@ class Rag:
         self.generator.generate(query=self.query,context=self.context)
 
 
-
+"""
 myrag=Rag()
 user_query="je sasis pas mais je veut savoir qu'elle matière choisirr stpp mais j'aime pas les maths et jeveux 25 ects"
 Rag.call(user_query)
+"""
+dataset = [
+            {"info": "Les registres du processeur XYZ ont une taille de 68 bits."},
+            {"info": "Le cache L1 du processeur XYZ est de 129 Ko."},
+            {"info": "Le processeur XYZ possède 8 cœurs physiques et 16 threads."},
+            {"info": "Le processeur XYZ est jaune."},
+            {"info": "Le processeur XYZ mesure 5 cm."},
+        ]
 
+knowledge = KnowledgeBase(dataset,"BAAI/bge-small-en","BAAI/bge-small-en")
+fetcher=VectorFetcher(knowledge)
+fetcher.retrieve("taille du cache")
