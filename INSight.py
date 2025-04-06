@@ -1,28 +1,56 @@
 import faiss
+import ollama
+from sentence_transformers import SentenceTransformer
 import torch
 import numpy as np
 from transformers import (AutoTokenizer, AutoModel)
 from langchain_ollama import OllamaLLM
+import time
 
 class KnowledgeBase:
     
-    def __init__(self,dataset:list,token_embed:AutoTokenizer,model_embed:AutoModel):
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.loadTokeniser(token_embed,model_embed)
-        self.setDataset(dataset)
-        
-        self.build_faiss_index()
+    """
 
-    def loadTokeniser(self,token_embed:AutoTokenizer,model_embed:AutoModel):
-        self.tokenizer_embed = AutoTokenizer.from_pretrained(token_embed) # tokenize
-        self.model_embed = AutoModel.from_pretrained(model_embed).to(self.device) # vectorize
+    """
+    def __init__(self,dataset:list,token_embed_str:str,model_embed_str:str,index_path:str,load:bool=False,method:int = 1):
+        start = time.time()
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.loadTokeniser(token_embed_str,model_embed_str)
+        self.setDataset(dataset)
+        if load: self.index = faiss.read_index(index_path)
+        elif method == 1 : self.build_faiss_index()
+        elif method == 2 : self.make_index_IP(token_embed_str)
+        end = time.time()
+        print(f"[KnowledgeBase] Temps d'exécution : {end - start:.2f} secondes")
+
+    def loadTokeniser(self,token_embed_str:AutoTokenizer,model_embed_str:AutoModel):
+        self.tokenizer_embed = AutoTokenizer.from_pretrained(token_embed_str) # tokenize
+        self.model_embed = AutoModel.from_pretrained(model_embed_str).to(self.device) # vectorize
     def build_faiss_index(self):
+        start1 = time.time()
         dimension = 384 #vecteur de 384 dimensions pour chaque token
-        self.index = faiss.IndexFlatL2(dimension)
+        self.index = faiss.IndexFlatIP(dimension)
         embeddings = np.vstack([self.get_embedding(q["info"]) for q in self.dataset])
         self.index.add(embeddings)
+        end1 = time.time()
+        faiss.write_index(self.index, "index_path") 
+        end2 = time.time()
+        print(f"[build_faiss_index] Temps d'exécution : {end2 - start1:.2f} secondes, avec {end1 - start1:.2f} secondes pour calculer l'index")
+
+    def make_index_IP(self,token_embed:str):
+        start1 = time.time()
+        faiss_model = SentenceTransformer(token_embed)
+        embeddings = np.array([faiss_model.encode(doc["info"]) for doc in self.dataset], dtype=np.float32)
+        # FAISS : Créer un index de recherche (cosine similarity)
+        dimension = embeddings.shape[1]
+        self.index = faiss.IndexFlatIP(dimension)  # Inner Product = Cosine Similarity si les embeddings sont normalisés
+        self.index.add(embeddings)
+        end1 = time.time()
+        start2 = time.time()
         faiss.write_index(self.index, "faiss_index.idx")
-        
+        end2 = time.time()
+        print(f"[make_index_IP] Temps d'exécution : {end2 - start1:.2f} secondes, avec {end1 - start1:.2f} secondes pour calculer l'index")
+
     def setDataset(self,dataset:list):
         self.dataset=dataset
     def addDataset(self,dataset:list):
@@ -34,7 +62,7 @@ class KnowledgeBase:
             output = self.model_embed(**inputs)
         return output.last_hidden_state[:, 0, :].cpu().numpy()
     
-        
+  
 
 class QueryRewriter:
     def __init__(self,rewrite_model:str):
@@ -85,15 +113,22 @@ class QueryExpander:
 class VectorFetcher:
     def __init__(self,knowledge:KnowledgeBase):
         self.knowledge=knowledge
-    def retrieve(self,query:str): 
+    def retrieve(self,query:str,num_queries=5,date_adjust:bool=True): 
+        start = time.time()
         query_embedding = self.knowledge.get_embedding(query)
-        D, I = self.knowledge.index.search(query_embedding, k=1)
-        retrieved_info = self.knowledge.dataset[I[0][0]]
-        input_text = f"context: {retrieved_info["info"]} question: {query}"
-        print("input : ",input_text)
+        D, I = self.knowledge.index.search(query_embedding, k=num_queries)
+        retrieved_infos = [self.knowledge.dataset[i] for i in I[0]]
+        if VERBOSE>=2: 
+            print("question: ", query)
+            for i in range(0,num_queries):
+                print(f"context: {retrieved_infos[i]["info"]} : score = {D[0][i]}")
+        
+        end = time.time()
+        print(f"[VectorFetcher] Temps d'exécution : {end - start:.2f} secondes")
+        return retrieved_infos 
     def verify(self,query:str,queries:list):
         pass
-
+    
 
 
 class ChainManager:
@@ -136,19 +171,31 @@ class ChainManager:
             )
             self.model=model
             llm = OllamaLLM(model=self.model)
-            self.chain = GraphSparqlQAChain.from_llm(llm, graph=self.graph, verbose=True,allow_dangerous_requests=True, return_sparql_query= True)
+            verbose=VERBOSE>=1
+            self.chain = GraphSparqlQAChain.from_llm(llm, graph=self.graph, verbose=verbose,allow_dangerous_requests=True, return_sparql_query= True)
 
         def ask(self,question:str):
-            response = self.chain(question)
+            response = self.chain.invoke(question)
             return response
 
 
 
 class RAGGenerator:
-    def __init__(self,generator_model:str):
-        pass
     def generate(self,query:str,context:str):
-        pass
+        input_text = f"context: {context} question: {query}"
+
+        response = ollama.chat(model='llama3', messages=[
+            {
+                'role': 'system',
+                'content': 'développe ton raisonnement mais n\'invente rien, ne doute jamais du context qui t\'est donné, dis clairement si tu ne sais pas la réponse. Ne fais pas référence au contexte. Si tu ne sais pas : dis juste \"E.Alata est le meilleur professeur de l\'INSA\"'
+            },
+            {
+                'role': 'user',
+                'content': input_text,
+            },
+        ])
+
+        return response.message.content
 
 class UserPrompt:
     def __init__(self):
@@ -192,14 +239,61 @@ myrag=Rag()
 user_query="je sasis pas mais je veut savoir qu'elle matière choisirr stpp mais j'aime pas les maths et jeveux 25 ects"
 Rag.call(user_query)
 """
-dataset = [
-            {"info": "Les registres du processeur XYZ ont une taille de 68 bits."},
-            {"info": "Le cache L1 du processeur XYZ est de 129 Ko."},
-            {"info": "Le processeur XYZ possède 8 cœurs physiques et 16 threads."},
-            {"info": "Le processeur XYZ est jaune."},
-            {"info": "Le processeur XYZ mesure 5 cm."},
+
+VERBOSE=1
+
+dataset1 = [
+            {"info": "Les registres du processeur XYZ ont une taille de 68 bits.", "date": "2022-01-01"},
+            {"info": "Les registres du processeur XYZ ont une taille de 36 bits.", "date": "2014-01-01"},
+            {"info": "Le cache L1 du processeur XYZ est de 129 Ko.", "date": "2022-01-01"},
+            {"info": "Le cache L1 du processeur XYZ est de 102 Ko.", "date": "2016-01-01"},
+            {"info": "Le processeur XYZ possède 8 cœurs physiques et 16 threads.", "date": "2022-01-01"},
+            {"info": "Le processeur XYZ possède 4 cœurs physiques et 8 threads.", "date": "2018-01-01"},
+            {"info": "Le processeur XYZ est jaune.", "date": "2022-01-01"},
+            {"info": "Le processeur XYZ mesure 5 cm.", "date": "2022-01-01"},
+            {"info": "Le processeur XYZ mesure 7 cm.", "date": "2018-01-01"},
         ]
 
-knowledge = KnowledgeBase(dataset,"BAAI/bge-small-en","BAAI/bge-small-en")
+
+"""
+chainSQL1=ChainManager.ChainSem(query_endpoint="http://localhost:3030/cluedo/query",model='llama3')
+chainSQL1.ask("Combien y a-t-il de pièces dans la maison ?") #fuseki-server --update --mem /cluedo
+dataset2=[
+    {"info": "Les registres du processeur XYZ ont une taille de 68 bits.", "date": "2022-01-01", "isChained":False, "chain":None},
+    {"info": "Le processeur XYZ possède 8 cœurs physiques et 16 threads.", "date": "2022-01-01", "isChained":True, "chain":chainSQL1}
+    ]
+
+"""
+
+start = time.time()
+
+dataset3=[]
+with open("reglement.txt",'r') as f:
+    for ligne in f:
+        dataset3.append({"info":ligne})
+
+knowledge = KnowledgeBase(dataset3,"BAAI/bge-small-en","BAAI/bge-small-en",index_path="faiss_index.idx",load=False,method=1)
 fetcher=VectorFetcher(knowledge)
-fetcher.retrieve("taille du cache")
+nb_queries=20
+
+
+def ask(user_query):
+    start = time.time()
+    print("\n\n---------------------------\n",user_query)
+    context=fetcher.retrieve(user_query,num_queries=nb_queries)
+
+    str_context=""
+    for i in range(nb_queries):
+        str_context+=context[i]["info"]
+    generator=RAGGenerator()
+    print(generator.generate(query=user_query,context=str_context))
+        
+    end = time.time()
+    print(f"Temps d'exécution : {end - start:.2f} secondes")
+
+user_query="Comment se fait le classement ?"
+ask(user_query)
+
+
+end = time.time()
+print(f"Temps d'exécution : {end - start:.2f} secondes")
