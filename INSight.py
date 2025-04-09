@@ -14,11 +14,13 @@ class KnowledgeBase:
     """
     def __init__(self,dataset:list,token_embed_str:str,model_embed_str:str,index_path:str,load:bool=False,method:int = 1):
         start = time.time()
+        self.index_path=index_path
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.loadTokeniser(token_embed_str,model_embed_str)
         self.setDataset(dataset)
         if load: self.index = faiss.read_index(index_path)
-        elif method == 1 : self.build_faiss_index()
+        elif method == 1 : 
+            self.build_faiss_index()
         elif method == 2 : self.make_index_IP(token_embed_str)
         end = time.time()
         print(f"[KnowledgeBase] Temps d'exécution : {end - start:.2f} secondes")
@@ -33,7 +35,7 @@ class KnowledgeBase:
         embeddings = np.vstack([self.get_embedding(q["info"]) for q in self.dataset])
         self.index.add(embeddings)
         end1 = time.time()
-        faiss.write_index(self.index, "index_path") 
+        faiss.write_index(self.index,self.index_path) 
         end2 = time.time()
         print(f"[build_faiss_index] Temps d'exécution : {end2 - start1:.2f} secondes, avec {end1 - start1:.2f} secondes pour calculer l'index")
 
@@ -121,7 +123,7 @@ class VectorFetcher:
         if VERBOSE>=2: 
             print("question: ", query)
             for i in range(0,num_queries):
-                print(f"context: {retrieved_infos[i]["info"]} : score = {D[0][i]}")
+                print(f"context: {retrieved_infos[i]["info"]} : score = {D[0][i]:.2f}")
         
         end = time.time()
         print(f"[VectorFetcher] Temps d'exécution : {end - start:.2f} secondes")
@@ -187,7 +189,7 @@ class RAGGenerator:
         response = ollama.chat(model='llama3', messages=[
             {
                 'role': 'system',
-                'content': 'développe ton raisonnement mais n\'invente rien, ne doute jamais du context qui t\'est donné, dis clairement si tu ne sais pas la réponse. Ne fais pas référence au contexte. Si tu ne sais pas : dis juste \"E.Alata est le meilleur professeur de l\'INSA\"'
+                'content': 'développe ton raisonnement mais n\'invente rien, ne doute jamais du context qui t\'est donné, dis clairement si tu ne sais pas la réponse. Ne fais pas référence au contexte. '
             },
             {
                 'role': 'user',
@@ -234,13 +236,7 @@ class Rag:
         self.generator.generate(query=self.query,context=self.context)
 
 
-"""
-myrag=Rag()
-user_query="je sasis pas mais je veut savoir qu'elle matière choisirr stpp mais j'aime pas les maths et jeveux 25 ects"
-Rag.call(user_query)
-"""
 
-VERBOSE=1
 
 dataset1 = [
             {"info": "Les registres du processeur XYZ ont une taille de 68 bits.", "date": "2022-01-01"},
@@ -265,35 +261,45 @@ dataset2=[
 
 """
 
-start = time.time()
+VERBOSE=1
 
-dataset3=[]
-with open("reglement.txt",'r') as f:
-    for ligne in f:
-        dataset3.append({"info":ligne})
+if __name__=="__main__":
+    
+    VERBOSE=2
 
-knowledge = KnowledgeBase(dataset3,"BAAI/bge-small-en","BAAI/bge-small-en",index_path="faiss_index.idx",load=False,method=1)
-fetcher=VectorFetcher(knowledge)
-nb_queries=20
-
-
-def ask(user_query):
     start = time.time()
-    print("\n\n---------------------------\n",user_query)
-    context=fetcher.retrieve(user_query,num_queries=nb_queries)
 
-    str_context=""
-    for i in range(nb_queries):
-        str_context+=context[i]["info"]
-    generator=RAGGenerator()
-    print(generator.generate(query=user_query,context=str_context))
-        
+    dataset3=[]
+    with open("reglement.txt",'r',encoding="utf-8") as f:
+        for ligne in f:
+            dataset3.append({"info":ligne.split("\t")[0],"context":ligne.split("\t")[1]})
+
+
+    knowledge = KnowledgeBase(dataset3,"BAAI/bge-small-en","BAAI/bge-small-en",index_path="faiss_index.idx",load=True,method=1)
+    fetcher=VectorFetcher(knowledge)
+    nb_queries=5
+
+
+    def ask(user_query,small_to_big):
+        start = time.time()
+        print("\n\n---------------------------\n",user_query)
+        context=fetcher.retrieve(user_query,num_queries=nb_queries)
+
+        str_context=""
+        for i in range(nb_queries):
+            if small_to_big:
+                str_context+=context[i]["context"]
+            else:
+                str_context+=context[i]["info"]
+        generator=RAGGenerator()
+        print(generator.generate(query=user_query,context=str_context))
+            
+        end = time.time()
+        print(f"[ask] Temps d'exécution : {end - start:.2f} secondes")
+
+    user_query="Comment se fait le classement ?"
+    ask(user_query,small_to_big=True)
+
+
     end = time.time()
-    print(f"Temps d'exécution : {end - start:.2f} secondes")
-
-user_query="Comment se fait le classement ?"
-ask(user_query)
-
-
-end = time.time()
-print(f"Temps d'exécution : {end - start:.2f} secondes")
+    print(f"[global] Temps d'exécution : {end - start:.2f} secondes")

@@ -37,11 +37,23 @@ def pdf_to_sentences(pdf_path, txt_output_path):
     for i in range(0, len(sentences), 9)
     ]
     """
+    small_to_big=True
+
     # Écrire chaque phrase dans un fichier texte
     with open(txt_output_path, "w", encoding="utf-8") as f:
-        for sentence in paragraphs:
-            if len(sentence.strip())>20:
-                f.write(sentence.strip() + "\n")
+        if small_to_big:
+            for i in range(len(paragraphs)):
+                big=""
+                if len(paragraphs[i].strip())>20:
+                    if i==0 or i==len(paragraphs)-1:
+                        big=paragraphs[i].strip()
+                    else:
+                        big=paragraphs[i-1].strip()+paragraphs[i].strip()+paragraphs[i+1].strip()
+                    f.write(paragraphs[i].strip() + "\t"+big+"\n")
+        else:
+            f.write(paragraphs[i].strip() + "\t"+paragraphs[i].strip()+"\n")
+
+
 
 # Exemple d'utilisation
 pdf_to_sentences("Reglement_des_Etudes_2023-2024.pdf", "reglement.txt")
