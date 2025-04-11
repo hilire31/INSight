@@ -297,9 +297,14 @@ if __name__=="__main__":
         end = time.time()
         print(f"[ask] Temps d'exécution : {end - start:.2f} secondes")
 
-    user_query="Comment se fait le classement ?"
+    user_query="Quel est la capitale de la russie ?"
     ask(user_query,small_to_big=True)
 
+    end = time.time()
+    print(f"[global] Temps d'exécution : {end - start:.2f} secondes")
+    start = time.time()
+    user_query="Quel est le code secret ?"
+    ask(user_query,small_to_big=True)
 
     end = time.time()
     print(f"[global] Temps d'exécution : {end - start:.2f} secondes")
