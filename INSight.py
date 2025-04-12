@@ -359,7 +359,9 @@ if __name__=="__main__":
     knowledge = KnowledgeBase(dataset3,"BAAI/bge-small-en","BAAI/bge-small-en",index_path="faiss_index.idx",load=True,method=1)
     fetcher=VectorFetcher(knowledge)
     
-
+    
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(device)
 
     def ask(user_query,nb_contextes):
         start = time.time()
