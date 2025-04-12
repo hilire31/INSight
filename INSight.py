@@ -342,7 +342,7 @@ VERBOSE=1
 
 if __name__=="__main__":
     
-    VERBOSE=2
+    VERBOSE=1
 
     start = time.time()
 
