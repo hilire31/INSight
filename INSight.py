@@ -234,10 +234,10 @@ class UserPrompt:
                 VERBOSE=int(v)
             elif user_input=="/n":
                 nb = input("Combien de contextes donner ?\n")
-                while (not v.isnumeric() or int(nb)>20 or int(nb)<2):
+                while (not nb.isnumeric() or int(nb)>20 or int(nb)<2):
                     print("valeur incorrecte")
                     nb = input("Combien de contextes donner ?\n")
-                VERBOSE=int(v)
+                VERBOSE=int(nb)
             else:
                 self.ask(user_input,nb_contextes=nb)
 
