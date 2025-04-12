@@ -237,7 +237,7 @@ class UserPrompt:
                 while (not nb.isnumeric() or int(nb)>20 or int(nb)<2):
                     print("valeur incorrecte")
                     nb = input("Combien de contextes donner ?\n")
-                VERBOSE=int(nb)
+                nb=int(nb)
             else:
                 self.ask(user_input,nb_contextes=nb)
 
