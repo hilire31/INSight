@@ -6,6 +6,9 @@ import numpy as np
 from transformers import (AutoTokenizer, AutoModel)
 from langchain_ollama import OllamaLLM
 import time
+from PyPDF2 import PdfReader
+
+
 
 class KnowledgeBase:
     
@@ -208,6 +211,104 @@ class UserPrompt:
         pass
 
 
+
+
+
+
+class RAGDataset:
+    def extractPDF(self,pdf_path, txt_output_path):
+        reader = PdfReader(pdf_path)
+        full_text = ""
+
+        for page in reader.pages:
+            full_text += page.extract_text() + "\n"
+        
+        paragraphs = full_text.split("\n")
+
+        paragraphs=[i for i in paragraphs if len(i)>15]
+        paragraphs = [
+            "".join(paragraphs[i:i+3])
+            for i in range(0, len(paragraphs), 3)
+        ]
+
+        # Écrire chaque phrase dans un fichier texte
+        with open(txt_output_path, "w", encoding="utf-8") as f:
+            for i in range(len(paragraphs)):
+                f.write(paragraphs[i].strip()+"\n")
+    def refineTXT(self,input_path,output_path):
+        with open(input_path, "r", encoding="utf-8") as f_in:
+            
+            with open(output_path, "w", encoding="utf-8") as f_out:
+                for i in f_in:
+                    f_out.write(refine(i,filtre)+"\n")
+
+    def make_context(self, context_path, refined_path, small_to_big):
+        # small_to_big=(1,2)
+        bef = small_to_big[0]
+        aft = small_to_big[1]
+        dataset = []
+
+        with open(context_path, 'r', encoding="utf-8") as f_context, open(refined_path, 'r', encoding="utf-8") as f_refined:
+            context_lines = f_context.readlines()
+            refined_lines = f_refined.readlines()
+
+            for i in range(bef, len(context_lines) - aft):
+                dataset.append({
+                    "info": refined_lines[i],
+                    "context": concaten(cut(context_lines, (bef, i, aft)))
+                })
+
+        return dataset
+
+
+
+
+
+def cut(l,param):
+    return l[param[1]-param[0]:param[1]+param[2]+1:]
+def concaten(l):
+    ret=""
+    for i in l:
+        ret+=i+" "
+    return ret
+def filtre(string:str):
+    for i in string:
+        if i.isnumeric():
+            return False
+        if i.isupper():
+            return False
+    if len(string)>5:
+        return False
+    else: return True
+
+
+def refine(string:str,filtre):
+    l=string.split()
+    li=[]
+    for i in l:
+        if not filtre(i.strip()):
+            li.append(i.strip())
+    return concaten(li)
+
+
+
+
+
+
+
+
+
+
+"""
+chainSQL1=ChainManager.ChainSem(query_endpoint="http://localhost:3030/cluedo/query",model='llama3')
+chainSQL1.ask("Combien y a-t-il de pièces dans la maison ?") #fuseki-server --update --mem /cluedo
+dataset2=[
+    {"info": "Les registres du processeur XYZ ont une taille de 68 bits.", "date": "2022-01-01", "isChained":False, "chain":None},
+    {"info": "Le processeur XYZ possède 8 cœurs physiques et 16 threads.", "date": "2022-01-01", "isChained":True, "chain":chainSQL1}
+    ]
+
+"""
+
 class Rag:
     def __init__(self):
         pass
@@ -237,30 +338,6 @@ class Rag:
 
 
 
-
-dataset1 = [
-            {"info": "Les registres du processeur XYZ ont une taille de 68 bits.", "date": "2022-01-01"},
-            {"info": "Les registres du processeur XYZ ont une taille de 36 bits.", "date": "2014-01-01"},
-            {"info": "Le cache L1 du processeur XYZ est de 129 Ko.", "date": "2022-01-01"},
-            {"info": "Le cache L1 du processeur XYZ est de 102 Ko.", "date": "2016-01-01"},
-            {"info": "Le processeur XYZ possède 8 cœurs physiques et 16 threads.", "date": "2022-01-01"},
-            {"info": "Le processeur XYZ possède 4 cœurs physiques et 8 threads.", "date": "2018-01-01"},
-            {"info": "Le processeur XYZ est jaune.", "date": "2022-01-01"},
-            {"info": "Le processeur XYZ mesure 5 cm.", "date": "2022-01-01"},
-            {"info": "Le processeur XYZ mesure 7 cm.", "date": "2018-01-01"},
-        ]
-
-
-"""
-chainSQL1=ChainManager.ChainSem(query_endpoint="http://localhost:3030/cluedo/query",model='llama3')
-chainSQL1.ask("Combien y a-t-il de pièces dans la maison ?") #fuseki-server --update --mem /cluedo
-dataset2=[
-    {"info": "Les registres du processeur XYZ ont une taille de 68 bits.", "date": "2022-01-01", "isChained":False, "chain":None},
-    {"info": "Le processeur XYZ possède 8 cœurs physiques et 16 threads.", "date": "2022-01-01", "isChained":True, "chain":chainSQL1}
-    ]
-
-"""
-
 VERBOSE=1
 
 if __name__=="__main__":
@@ -269,24 +346,28 @@ if __name__=="__main__":
 
     start = time.time()
 
+    
+    
+    
     dataset3=[]
-    with open("reglement.txt",'r',encoding="utf-8") as f:
-        for ligne in f:
-            dataset3.append({"info":ligne.split("\t")[0],"context":ligne.split("\t")[1]})
+    small_to_big = (1,2)
+    RAGDataset().extractPDF("Reglement_des_Etudes_2023-2024.pdf", "reglement.txt")
+    RAGDataset().refineTXT("reglement.txt","refined.txt")
+    dataset3=RAGDataset().make_context("reglement.txt","refined.txt",(1,2))
 
 
     knowledge = KnowledgeBase(dataset3,"BAAI/bge-small-en","BAAI/bge-small-en",index_path="faiss_index.idx",load=True,method=1)
     fetcher=VectorFetcher(knowledge)
-    nb_queries=5
+    
 
 
-    def ask(user_query,small_to_big):
+    def ask(user_query,nb_contextes):
         start = time.time()
         print("\n\n---------------------------\n",user_query)
-        context=fetcher.retrieve(user_query,num_queries=nb_queries)
+        context=fetcher.retrieve(user_query,num_queries=nb_contextes)
 
         str_context=""
-        for i in range(nb_queries):
+        for i in range(nb_contextes):
             if small_to_big:
                 str_context+=context[i]["context"]
             else:
@@ -297,14 +378,14 @@ if __name__=="__main__":
         end = time.time()
         print(f"[ask] Temps d'exécution : {end - start:.2f} secondes")
 
-    user_query="Quel est la capitale de la russie ?"
-    ask(user_query,small_to_big=True)
+    user_query="Quel texte fixe les regles pour délivrer le diplôme à l'insa ?"
+    ask(user_query,nb_contextes=3)
 
     end = time.time()
     print(f"[global] Temps d'exécution : {end - start:.2f} secondes")
     start = time.time()
-    user_query="Quel est le code secret ?"
-    ask(user_query,small_to_big=True)
+    user_query="Je dois obtenire quel niveau en anglais pour valider mon diplôme ?"
+    ask(user_query,nb_contextes=5)
 
     end = time.time()
     print(f"[global] Temps d'exécution : {end - start:.2f} secondes")
