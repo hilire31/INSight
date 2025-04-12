@@ -385,7 +385,7 @@ if __name__=="__main__":
 
         str_context=""
         for i in range(nb_contextes):
-            str_context+=context[i]["context"]+context[i]["metadata"]+" \n"
+            str_context+=context[i]["context"]+str(context[i]["metadata"])+" \n"
         generator=RAGGenerator()
         print(generator.generate(query=user_query,context=str_context))
             
