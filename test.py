@@ -1,34 +1,9 @@
 
-
-def concaten(l):
-    ret=""
-    for i in l:
-        ret+=i+" "
-    return ret
-
-
-def filtre(string:str):
-    for i in string:
-        if i.isnumeric():
-            return False
-        if i.isupper():
-            return False
-    if len(string)>5:
-        return False
-    else: return True
-
-
-
-def refine(string:str,filtre):
-    l=string.split()
-    li=[]
-    for i in l:
-        if not filtre(i.strip()):
-            li.append(i.strip())
-    return concaten(li)
-
-i="DFGDHJ aa aaa aaaaaaa    487aaaa  Ad AA 4a"
-
-print(refine(i,filtre))
-
-print(filtre("aa"))
+from PyPDF2 import PdfReader
+pdf_path="Reglement_des_Etudes_2023-2024.pdf"
+reader = PdfReader(pdf_path)
+full_text = ""
+i=0
+for page in reader.pages:
+    i+=1
+print(i)

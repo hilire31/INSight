@@ -192,7 +192,7 @@ class RAGGenerator:
         response = ollama.chat(model='llama3', messages=[
             {
                 'role': 'system',
-                'content': 'développe ton raisonnement mais n\'invente rien, ne doute jamais du context qui t\'est donné, dis clairement si tu ne sais pas la réponse. Ne fais pas référence au contexte. '
+                'content': 'développe ton raisonnement mais n\'invente rien, ne doute jamais du contexte qui t\'est donné, dis clairement si tu ne sais pas la réponse. Le contexte qui t\'est donné est le réglement des études, cite la page d\'origine des informations essentielles. '
             },
             {
                 'role': 'user',
@@ -214,52 +214,67 @@ class UserPrompt:
 
 
 
-
 class RAGDataset:
-    def extractPDF(self,pdf_path, txt_output_path):
+    def extractPDF(self, pdf_path, txt_output_path, meta_output_path):
+        from PyPDF2 import PdfReader
+
         reader = PdfReader(pdf_path)
         full_text = ""
+        page_indices = []  # Pour stocker les pages de chaque paragraphe
 
-        for page in reader.pages:
-            full_text += page.extract_text() + "\n"
-        
-        paragraphs = full_text.split("\n")
+        all_paragraphs = []
 
-        paragraphs=[i for i in paragraphs if len(i)>15]
-        paragraphs = [
-            "".join(paragraphs[i:i+3])
-            for i in range(0, len(paragraphs), 3)
-        ]
+        for page_num, page in enumerate(reader.pages):
+            page_text = page.extract_text()
+            if not page_text:
+                continue
+            lines = page_text.split("\n")
+            lines = [line for line in lines if len(line) > 15]
 
-        # Écrire chaque phrase dans un fichier texte
-        with open(txt_output_path, "w", encoding="utf-8") as f:
-            for i in range(len(paragraphs)):
-                f.write(paragraphs[i].strip()+"\n")
-    def refineTXT(self,input_path,output_path):
-        with open(input_path, "r", encoding="utf-8") as f_in:
-            
-            with open(output_path, "w", encoding="utf-8") as f_out:
-                for i in f_in:
-                    f_out.write(refine(i,filtre)+"\n")
+            # Groupe les lignes par 3
+            for i in range(0, len(lines), 3):
+                paragraph = "".join(lines[i:i+3])
+                if len(paragraph.strip()) > 0:
+                    all_paragraphs.append(paragraph.strip())
+                    page_indices.append(page_num + 1)  # Numérotation des pages commence à 1
 
-    def make_context(self, context_path, refined_path, small_to_big):
+        # Écriture du texte
+        with open(txt_output_path, "w", encoding="utf-8") as f_txt, \
+             open(meta_output_path, "w", encoding="utf-8") as f_meta:
+            for paragraph, page in zip(all_paragraphs, page_indices):
+                f_txt.write(paragraph + "\n")
+                f_meta.write(str(page) + "\n")  # une ligne par paragraphe
+
+    def refineTXT(self, input_path, output_path):
+        with open(input_path, "r", encoding="utf-8") as f_in, \
+             open(output_path, "w", encoding="utf-8") as f_out:
+            for i in f_in:
+                f_out.write(refine(i, filtre) + "\n")
+
+    def make_context(self, context_path, refined_path, meta_path, small_to_big):
         # small_to_big=(1,2)
         bef = small_to_big[0]
         aft = small_to_big[1]
         dataset = []
 
-        with open(context_path, 'r', encoding="utf-8") as f_context, open(refined_path, 'r', encoding="utf-8") as f_refined:
+        with open(context_path, 'r', encoding="utf-8") as f_context, \
+             open(refined_path, 'r', encoding="utf-8") as f_refined, \
+             open(meta_path, 'r', encoding="utf-8") as f_meta:
+
             context_lines = f_context.readlines()
             refined_lines = f_refined.readlines()
+            meta_lines = [int(line.strip()) for line in f_meta.readlines()]
 
             for i in range(bef, len(context_lines) - aft):
                 dataset.append({
                     "info": refined_lines[i],
-                    "context": concaten(cut(context_lines, (bef, i, aft)))
+                    "context": concaten(cut(context_lines, (bef, i, aft))),
+                    "metadata": {
+                        "page": meta_lines[i]
+                    }
                 })
 
         return dataset
-
 
 
 
@@ -342,7 +357,7 @@ VERBOSE=1
 
 if __name__=="__main__":
     
-    VERBOSE=1
+    VERBOSE=2
 
     start = time.time()
 
@@ -351,9 +366,9 @@ if __name__=="__main__":
     
     dataset3=[]
     small_to_big = (1,2)
-    RAGDataset().extractPDF("Reglement_des_Etudes_2023-2024.pdf", "reglement.txt")
+    RAGDataset().extractPDF("Reglement_des_Etudes_2023-2024.pdf", "reglement.txt","meta.txt")
     RAGDataset().refineTXT("reglement.txt","refined.txt")
-    dataset3=RAGDataset().make_context("reglement.txt","refined.txt",(1,2))
+    dataset3=RAGDataset().make_context("reglement.txt","refined.txt","meta.txt",(1,2))
 
 
     knowledge = KnowledgeBase(dataset3,"BAAI/bge-small-en","BAAI/bge-small-en",index_path="faiss_index.idx",load=True,method=1)
@@ -370,10 +385,7 @@ if __name__=="__main__":
 
         str_context=""
         for i in range(nb_contextes):
-            if small_to_big:
-                str_context+=context[i]["context"]
-            else:
-                str_context+=context[i]["info"]
+            str_context+=context[i]["context"]+context[i]["metadata"]+" \n"
         generator=RAGGenerator()
         print(generator.generate(query=user_query,context=str_context))
             
