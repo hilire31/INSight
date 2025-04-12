@@ -205,11 +205,44 @@ class RAGGenerator:
 class UserPrompt:
     def __init__(self):
         pass
-    def getUserQuery():
-        pass
-    def getUserFeedback():
-        pass
+    def ask(self,user_query,nb_contextes):
+        start = time.time()
+        print("\n\n---------------------------\n",user_query)
+        context=fetcher.retrieve(user_query,num_queries=nb_contextes)
 
+        str_context=""
+        for i in range(nb_contextes):
+            str_context+=context[i]["context"]+str(context[i]["metadata"])+" \n"
+        generator=RAGGenerator()
+        print(generator.generate(query=user_query,context=str_context))
+            
+        end = time.time()
+        if VERBOSE>=1:print(f"[ask] Temps d'exécution : {end - start:.2f} secondes")
+    def askloop(self):
+        global VERBOSE
+        user_input=None
+        stop=(user_input in ("q", "x", "","quit","exit"))
+        while not stop:
+            user_input=input("Bonjour quelle est votre question ?\n")
+            if user_input in ("q", "x", "","quit","exit"):
+                break
+            elif user_input=="/v":
+                v = input("quelle niveau de VERBOSE ? \n")
+                while (not v.isnumeric() or int(v)>6 or int(v)<0):
+                    print("valeur incorrecte")
+                    v = input("quelle niveau de VERBOSE ?\n")
+                VERBOSE=int(v)
+            elif user_input=="/n":
+                nb = input("Combien de contextes donner ?\n")
+                while (not v.isnumeric() or int(nb)>20 or int(nb)<2):
+                    print("valeur incorrecte")
+                    nb = input("Combien de contextes donner ?\n")
+                VERBOSE=int(v)
+            else:
+                self.ask(user_input,nb_contextes=nb)
+
+    def askfile(self):
+        pass
 
 
 
@@ -324,32 +357,6 @@ dataset2=[
 
 """
 
-class Rag:
-    def __init__(self):
-        pass
-    def call(self,user_query:str):
-
-        self.rephraser=QueryRewriter()
-        self.query=self.rephraser.rewrite(user_query) #query="Quelle matières choisir pour arriver à 25 ects ?"
-
-        self.expander=QueryExpander(expander_model='llama3.3')
-        self.queries=self.expander.expand(query,5)
-
-        #toolManager = ToolManager()
-
-        self.fetcher=VectorFetcher()
-        self.context=[]
-
-        for query in self.queries:
-            retrieved_document=self.fetcher.retrieve(self,query)
-            if not retrieved_document.needTool:
-                self.context.append(retrieved_document.context)
-            else:
-                self.toolSQL=ChainManager.ChainMySQL()
-                bdd="/path/to/database" #???
-                self.context.append(self.toolSQL.retrieve(self,query,bdd).context)
-        self.generator=RAGGenerator(generator_model='llama3.3')
-        self.generator.generate(query=self.query,context=self.context)
 
 
 
@@ -376,30 +383,15 @@ if __name__=="__main__":
     
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(device)
+    print("device : ",device)
 
-    def ask(user_query,nb_contextes):
-        start = time.time()
-        print("\n\n---------------------------\n",user_query)
-        context=fetcher.retrieve(user_query,num_queries=nb_contextes)
-
-        str_context=""
-        for i in range(nb_contextes):
-            str_context+=context[i]["context"]+str(context[i]["metadata"])+" \n"
-        generator=RAGGenerator()
-        print(generator.generate(query=user_query,context=str_context))
-            
-        end = time.time()
-        print(f"[ask] Temps d'exécution : {end - start:.2f} secondes")
-
-    user_query="Quel texte fixe les regles pour délivrer le diplôme à l'insa ?"
-    ask(user_query,nb_contextes=3)
-
+    
     end = time.time()
-    print(f"[global] Temps d'exécution : {end - start:.2f} secondes")
-    start = time.time()
-    user_query="Je dois obtenire quel niveau en anglais pour valider mon diplôme ?"
-    ask(user_query,nb_contextes=5)
+    print(f"[global init] Temps d'exécution : {end - start:.2f} secondes")
 
-    end = time.time()
-    print(f"[global] Temps d'exécution : {end - start:.2f} secondes")
+    user=UserPrompt()
+    user.askloop()
+
+
+
+
