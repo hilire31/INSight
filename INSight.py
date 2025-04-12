@@ -222,6 +222,7 @@ class UserPrompt:
         global VERBOSE
         user_input=None
         stop=(user_input in ("q", "x", "","quit","exit"))
+        nb=5
         while not stop:
             user_input=input("Bonjour quelle est votre question ?\n")
             if user_input in ("q", "x", "","quit","exit"):
