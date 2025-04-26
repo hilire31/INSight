@@ -3,39 +3,57 @@ from INSight import RAGDataset, KnowledgeBase, VectorFetcher, UserPrompt
 import config
 import os
 
-st.set_page_config(page_title="RAG PDF QA", layout="wide")
+st.set_page_config(page_title="📚 CÉLia - RAG PDF Chatbot", layout="wide")
 
 # Sidebar - Paramètres
 st.sidebar.title("Paramètres")
 token_model = st.sidebar.text_input("Tokenizer", "BAAI/bge-small-en")
 embed_model = st.sidebar.text_input("Embedding Model", "BAAI/bge-small-en")
-num_contextes = st.sidebar.slider("Nombre de contextes", 2, 10, config.NB_CONTEXTES)
+model = st.sidebar.text_input("Generation Model", config.GENERATOR_MODEL)
+num_contextes = st.sidebar.slider("Nombre de contextes", 2, 20, config.NB_CONTEXTES)
+chunk_size = st.sidebar.slider("Taille des chunks", 20, 1000, config.CHUNK_MAX_SIZE)
 
-# Titre principal
-st.title("📚 Système RAG - Question sur des PDFs")
+# Titre
+st.title("🤖 CÉLia - Chatbot RAG sur vos PDFs")
 
-# Sélection du dossier
-data_path = st.text_input("Chemin vers le dossier contenant les PDF")
-
+# Charger les documents
+data_path = st.text_input("📁 Chemin vers le dossier contenant les PDF")
 if data_path and os.path.exists(data_path):
-    if st.button("Charger les documents"):
-        with st.spinner("Chargement des documents..."):
-            rag_dataset = RAGDataset(load=False, data_path=data_path)
+    if st.button("📤 Charger les documents"):
+        with st.spinner("Chargement et indexation en cours..."):
+            rag_dataset = RAGDataset(load=False, data_path=data_path, chunk_size=chunk_size)
             kb = KnowledgeBase(rag_dataset, token_model, embed_model)
             kb.build_faiss_index()
             vf = VectorFetcher(kb)
             up = UserPrompt(vf)
-        st.success("Documents chargés et index construit avec succès !")
+        st.success("✅ Documents chargés et index construits !")
         st.session_state["up"] = up
+        st.session_state["chat_history"] = []
 else:
-    st.warning("Veuillez fournir un chemin valide.")
+    st.warning("🚨 Veuillez fournir un chemin valide vers un dossier contenant des PDF.")
 
-# Poser une question
+# Interface conversationnelle
 if "up" in st.session_state:
-    user_query = st.text_area("Pose ta question ici :", height=100)
-    if st.button("Poser la question"):
-        with st.spinner("Recherche en cours..."):
+    st.divider()
+    st.markdown("### 💬 Discussion avec CÉLia")
+    
+    # Afficher l'historique de la conversation
+    for message in st.session_state.get("chat_history", []):
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+    
+    # Entrée utilisateur
+    user_input = st.chat_input("Pose ta question ici...")
+    if user_input:
+        # Afficher le message utilisateur
+        st.chat_message("user").markdown(user_input)
+        st.session_state["chat_history"].append({"role": "user", "content": user_input})
+        
+        # Générer la réponse
+        with st.spinner("CÉLia réfléchit..."):
             up = st.session_state["up"]
-            reponse = up.ask(user_query, nb_contextes=num_contextes)
-            st.markdown("### 🧾 Réponse générée")
-            st.write(reponse)
+            response = up.ask(user_input, nb_contextes=num_contextes, model=model)
+
+        # Afficher la réponse de l'assistant
+        st.chat_message("assistant").markdown(response)
+        st.session_state["chat_history"].append({"role": "assistant", "content": response})

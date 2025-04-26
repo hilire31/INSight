@@ -356,12 +356,54 @@ class RAGGenerator:
             },
         ])
 
+
         return response.message.content
+    def light_generate(self, query: str, context: str, model):
+        from dotenv import load_dotenv
+        from huggingface_hub import InferenceClient
+        import os
+
+        load_dotenv()
+        hf_token = os.getenv("HF_TOKEN")
+
+        client = InferenceClient(
+            model=model,
+            token=hf_token
+        )
+
+        system_prompt = (
+            "Tu t'appelles CÉLia. Tu es une assistante francophone de l'INSA de Toulouse. "
+            "Tu réponds toujours en français, même si la question est posée dans une autre langue. "
+            "Tu peux répondre aussi bien à des questions pédagogiques qu'à des questions de conversation générale comme \"ça va ?\", \"tu fais quoi ?\", etc. "
+            "Utilise le contexte ci-dessous si nécessaire pour répondre à la question. "
+            "Si tu ne sais pas, dis-le simplement. Ta réponse doit être concise, naturelle, et tenir en 2 phrases maximum."
+        )
+
+        prompt = (
+            "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n"
+            f"{system_prompt}\n<|eot_id|>\n"
+            "<|start_header_id|>user<|end_header_id|>\n"
+            f"Contexte : {context}\nQuestion : {query}\n<|eot_id|>\n"
+            "<|start_header_id|>assistant<|end_header_id|>\n"
+        )
+
+        response = client.text_generation(
+            prompt,
+            max_new_tokens=200,
+            temperature=0.8,
+            top_p=0.8,
+            top_k=50,
+            stop=["<|eot_id|>"]
+        )
+        return response
+
+    
+    
 
 class UserPrompt:
     def __init__(self,fetcher:VectorFetcher):
         self.fetcher=fetcher
-    def ask(self,user_query,nb_contextes,small_to_big=config.SMALL_TO_BIG): #TODO dynamic small_to_big
+    def ask(self,user_query,nb_contextes,small_to_big=config.SMALL_TO_BIG,model=config.GENERATOR_MODEL): #TODO dynamic small_to_big
         start = time.time()
         print("\n\n---------------------------\n",user_query)
         context=self.fetcher.retrieve(user_query,num_queries=nb_contextes,small_to_big=small_to_big)
@@ -372,7 +414,7 @@ class UserPrompt:
         print("\n\n---------------------------\n",user_query)
         print(f"[ask] generation in progress using {config.GENERATOR_MODEL} please wait ...")
         generator=RAGGenerator()
-        response = generator.generate(query=user_query,context=str_context,model=config.GENERATOR_MODEL)
+        response = generator.light_generate(query=user_query,context=str_context,model=model)
         if VERBOSE>=1:print(response)
             
         end = time.time()
