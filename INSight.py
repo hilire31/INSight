@@ -28,52 +28,71 @@ def clean_paragraph(text: str) -> str:
 
 
 class RAGDataset:
-    def __init__(self,load:bool,data_path:str=None,chunk_size=config.CHUNK_MAX_SIZE):
-        assert os.path.exists(data_path),f"incorrect path to data : {data_path}"
-        assert chunk_size.is_integer, f"need chunk_size as integer"
-        assert chunk_size>=10, f"need chunk_size >=10"
-        self.work_path=data_path
-        self.context_path = os.path.join(self.work_path,"context.txt")
-        self.refined_path= os.path.join(self.work_path,"refined.txt")
-        self.meta_path= os.path.join(self.work_path,"meta.txt")
-        pdf_paths = []
-        if not load:
-            with open(self.context_path, "w", encoding="utf-8") as f:
-                pass
-            with open(self.refined_path, "w", encoding="utf-8") as f:
-                pass
-            with open(self.meta_path, "w", encoding="utf-8") as f:
-                pass
-            for nom_fichier in os.listdir(data_path):
-                chemin_complet = os.path.join(data_path, nom_fichier)
-                if os.path.isfile(chemin_complet) and nom_fichier.lower().endswith(".pdf"):
-                    pdf_paths.append(chemin_complet)
-            for path in pdf_paths:
-                self.extractPDF(path,self.context_path,self.meta_path)
-            self.refineTXT(self.context_path, self.refined_path)
-        
-        
+    def __init__(self, load: bool, data_path: str = None, uploaded_files=None, chunk_size=config.CHUNK_MAX_SIZE):
+        import os
+        assert chunk_size.is_integer(), "chunk_size must be an integer"
+        assert chunk_size >= 10, "chunk_size must be >= 10"
 
-        self.context_lines=open(self.context_path, 'r', encoding="utf-8").readlines()
-        self.refined_lines=open(self.refined_path, 'r', encoding="utf-8").readlines()
-        
-        
-        if len(pdf_paths)>0: 
-            meta=open(self.meta_path, 'r', encoding="utf-8").readlines()
-            self.meta_lines=[]
-            for ligne in meta:
-                self.meta_lines.append(ligne.split('\t'))
-            self.dataset=self.make_context("pdf",meta=True)
+        self.work_path = data_path
+        self.context_path = os.path.join(self.work_path, "context.txt") if self.work_path else "context.txt"
+        self.refined_path = os.path.join(self.work_path, "refined.txt") if self.work_path else "refined.txt"
+        self.meta_path = os.path.join(self.work_path, "meta.txt") if self.work_path else "meta.txt"
+        pdf_paths = []
+
+        if not load:
+            # Créer les fichiers texte vides
+            for path in [self.context_path, self.refined_path, self.meta_path]:
+                with open(path, "w", encoding="utf-8") as f:
+                    pass
+
+            if uploaded_files:  # Mode "upload Streamlit"
+                for uploaded_file in uploaded_files:
+                    if uploaded_file.name.lower().endswith(".pdf"):
+                        pdf_paths.append(uploaded_file)
+                for file in pdf_paths:
+                    self.extractPDF(file, self.context_path, self.meta_path, from_upload=True)
+
+            elif data_path and os.path.exists(data_path):  # Mode "fichiers locaux"
+                for nom_fichier in os.listdir(data_path):
+                    chemin_complet = os.path.join(data_path, nom_fichier)
+                    if os.path.isfile(chemin_complet) and nom_fichier.lower().endswith(".pdf"):
+                        pdf_paths.append(chemin_complet)
+                for path in pdf_paths:
+                    self.extractPDF(path, self.context_path, self.meta_path, from_upload=False)
+
+            else:
+                raise ValueError("Aucun fichier PDF valide fourni.")
+
+            self.refineTXT(self.context_path, self.refined_path)
+
+        self.context_lines = open(self.context_path, 'r', encoding="utf-8").readlines()
+        self.refined_lines = open(self.refined_path, 'r', encoding="utf-8").readlines()
+
+        if len(pdf_paths) > 0:
+            meta = open(self.meta_path, 'r', encoding="utf-8").readlines()
+            self.meta_lines = [ligne.split('\t') for ligne in meta]
+            self.dataset = self.make_context("pdf", meta=True)
         else:
-            self.dataset=self.make_context("folder",meta=False)
+            self.dataset = self.make_context("folder", meta=False)
+
 
 
 
     
 
-    def extractPDF(self,pdf_path: str, txt_output_path: str, meta_output_path: str, chunk_size=config.CHUNK_MAX_SIZE,chunk_overlap=config.CHUNK_OVERLAP):
-        file_name = os.path.basename(pdf_path)
-        reader = PdfReader(pdf_path)
+    def extractPDF(self, pdf_path_or_file, txt_output_path: str, meta_output_path: str, 
+                chunk_size=config.CHUNK_MAX_SIZE, chunk_overlap=config.CHUNK_OVERLAP, from_upload=False):
+        from PyPDF2 import PdfReader
+        import os
+
+        # Lecture du PDF
+        if from_upload:
+            reader = PdfReader(pdf_path_or_file)  # pdf_path_or_file est un UploadedFile Streamlit
+            file_name = pdf_path_or_file.name
+        else:
+            reader = PdfReader(pdf_path_or_file)  # pdf_path_or_file est un chemin de fichier
+            file_name = os.path.basename(pdf_path_or_file)
+
         print("[DEBUG] init extractPDF")
         chunk = []
         next_chunk = []
@@ -86,33 +105,35 @@ class RAGDataset:
                 if not text:
                     continue  # skip empty pages
 
-                words = text.split()  # split by word
+                words = text.split()  # split by words
 
                 for word in words:
                     chunk.append(word)
 
-                    # If we're nearing the chunk size, start saving overlap words
+                    # Gestion du chunk overlap
                     if chunk_size - len(chunk) <= chunk_overlap:
                         next_chunk.append(word)
 
-                    # When chunk is full, write it and prepare next
+                    # Quand le chunk est plein
                     if len(chunk) >= chunk_size:
                         paragraph = clean_paragraph(' '.join(chunk))
-                        assert len(paragraph.split(" "))<=chunk_size,"incorrect chunk size"
+                        assert len(paragraph.split()) <= chunk_size, "incorrect chunk size"
                         f_txt.write(paragraph + "\n")
                         f_meta.write(f"{page_num + 1}\t{file_name}\n")
-                        
-                        # Set current chunk to the overlapping words
+
+                        # Nouveau chunk = overlap words
                         chunk = next_chunk
                         next_chunk = []
 
-            # Write the last remaining chunk if it's not empty
+            # Dernier morceau si il reste un peu de texte
             if chunk:
                 paragraph = clean_paragraph(' '.join(chunk))
-                assert len(paragraph.split(" "))<=chunk_size,"incorrect chunk size"
+                assert len(paragraph.split()) <= chunk_size, "incorrect chunk size"
                 f_txt.write(paragraph + "\n")
                 f_meta.write(f"{page_num + 1}\t{file_name}\n")
+
         print("[DEBUG] end extractPDF")
+
 
         
 
@@ -148,8 +169,8 @@ class KnowledgeBase:
     def __init__(self,input_rag_dataset:RAGDataset,token_embed_str:str,model_embed_str:str):
         
         start = time.time()
-        self.index_path=os.path.join(input_rag_dataset.work_path,"faiss_index.idx")
-        
+        #self.index_path=os.path.join(input_rag_dataset.work_path,"faiss_index.idx")
+        self.index_path="faiss_index.idx"
         if not os.path.exists(self.index_path):
             with open(self.index_path, "x", encoding="utf-8") as f:
                 pass

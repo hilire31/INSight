@@ -16,12 +16,12 @@ chunk_size = st.sidebar.slider("Taille des chunks", 20, 1000, config.CHUNK_MAX_S
 # Titre
 st.title("🤖 CÉLia - Chatbot RAG sur vos PDFs")
 
-# Charger les documents
-data_path = st.text_input("📁 Chemin vers le dossier contenant les PDF")
-if data_path and os.path.exists(data_path):
+uploaded_files = st.file_uploader("📄 Uploadez vos fichiers PDF", accept_multiple_files=True, type=["pdf"])
+
+if uploaded_files:
     if st.button("📤 Charger les documents"):
         with st.spinner("Chargement et indexation en cours..."):
-            rag_dataset = RAGDataset(load=False, data_path=data_path, chunk_size=chunk_size)
+            rag_dataset = RAGDataset(load=False, uploaded_files=uploaded_files, chunk_size=chunk_size)
             kb = KnowledgeBase(rag_dataset, token_model, embed_model)
             kb.build_faiss_index()
             vf = VectorFetcher(kb)
@@ -29,8 +29,7 @@ if data_path and os.path.exists(data_path):
         st.success("✅ Documents chargés et index construits !")
         st.session_state["up"] = up
         st.session_state["chat_history"] = []
-else:
-    st.warning("🚨 Veuillez fournir un chemin valide vers un dossier contenant des PDF.")
+
 
 # Interface conversationnelle
 if "up" in st.session_state:
