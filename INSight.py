@@ -13,10 +13,11 @@ def clean_paragraph(p):
     p = re.sub(r'[\r\n\x0b\x0c\u2028\u2029]+', ' ', p)
     return p.strip()
 
-import tkinter as tk
-from tkinter import filedialog
+
 
 def select_directory():
+    import tkinter as tk
+    from tkinter import filedialog
     root = tk.Tk()
     root.withdraw()  # cache la fenêtre principale
     folder_path = filedialog.askdirectory(title="Select a folder")
