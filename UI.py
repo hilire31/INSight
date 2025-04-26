@@ -25,7 +25,8 @@ if uploaded_files:
             kb = KnowledgeBase(rag_dataset, token_model, embed_model)
             kb.build_faiss_index()
             vf = VectorFetcher(kb)
-            up = UserPrompt(vf)
+            hf_token = st.secrets["huggingface"]["token"]
+            up = UserPrompt(vf,hf_token)
         st.success("✅ Documents chargés et index construits !")
         st.session_state["up"] = up
         st.session_state["chat_history"] = []

@@ -380,13 +380,13 @@ class RAGGenerator:
 
 
         return response.message.content
-    def light_generate(self, query: str, context: str, model):
+    def light_generate(self, query: str, context: str, model, hf_token):
         from dotenv import load_dotenv
         from huggingface_hub import InferenceClient
         import os
 
         load_dotenv()
-        hf_token = os.getenv("HF_TOKEN")
+        #hf_token = os.getenv("HF_TOKEN")
 
         client = InferenceClient(
             model=model,
@@ -423,8 +423,9 @@ class RAGGenerator:
     
 
 class UserPrompt:
-    def __init__(self,fetcher:VectorFetcher):
+    def __init__(self,fetcher:VectorFetcher, hf_token):
         self.fetcher=fetcher
+        self.hf_token=hf_token
     def ask(self,user_query,nb_contextes,small_to_big=config.SMALL_TO_BIG,model=config.GENERATOR_MODEL): #TODO dynamic small_to_big
         start = time.time()
         print("\n\n---------------------------\n",user_query)
@@ -436,7 +437,7 @@ class UserPrompt:
         print("\n\n---------------------------\n",user_query)
         print(f"[ask] generation in progress using {config.GENERATOR_MODEL} please wait ...")
         generator=RAGGenerator()
-        response = generator.light_generate(query=user_query,context=str_context,model=model)
+        response = generator.light_generate(query=user_query,context=str_context,model=model, hf_token=self.hf_token)
         if VERBOSE>=1:print(response)
             
         end = time.time()
